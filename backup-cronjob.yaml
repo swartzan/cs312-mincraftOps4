@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: minecraft-s3-backup
+spec:
+  schedule: "0 4 * * *" # Runs every day at 4:00 AM
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: OnFailure
+          containers:
+          - name: aws-cli
+            image: amazon/aws-cli:latest
+            command:
+            - /bin/sh
+            - -c
+            # Syncs the world data to S3, deleting files in S3 that were deleted locally
+            - "aws s3 sync /data s3://cs312-swartzan-backups/minecraft-backup/ --delete"
+            volumeMounts:
+            - name: data
+              mountPath: /data
+          volumes:
+          - name: data
+            persistentVolumeClaim:
+              claimName: minecraft-data-pvc

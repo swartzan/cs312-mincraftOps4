@@ -1,0 +1,106 @@
+---
+# 1. Configuration (ConfigMap)
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: minecraft-config
+data:
+  EULA: "true"
+  MEMORY_SIZE: "2G" # Passed as an environment variable to your container
+
+---
+# 2. Persistence (PersistentVolumeClaim)
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minecraft-data-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  storageClassName: local-path # k3s default, provisions local disk space
+  resources:
+    requests:
+      storage: 10Gi
+
+---
+# 3. Workload (Deployment)
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: minecraft-server
+spec:
+  replicas: 1 # Single node stateful workload
+  strategy:
+    type: Recreate # Prevents two pods from fighting over the same local-path volume during updates
+  selector:
+    matchLabels:
+      app: minecraft
+  template:
+    metadata:
+      labels:
+        app: minecraft
+    spec:
+      imagePullSecrets:
+      - name: ecr-registry-secret
+      containers:
+      - name: minecraft
+        image: 441688139382.dkr.ecr.us-east-1.amazonaws.com/minecraft_ops:v2
+        env:
+          - name: MOTD
+            value: "Andrew Swartz - CS312"
+          - name: EULA
+            value: "TRUE" 
+        imagePullPolicy: IfNotPresent
+        ports:
+        - containerPort: 25565
+          name: game-port
+          protocol: TCP
+        envFrom:
+        - configMapRef:
+            name: minecraft-config
+        volumeMounts:
+        - name: data
+          mountPath: /data # Ensure this matches where your container saves world data
+        
+        # Resource Controls
+        resources:
+          requests:
+            memory: "1.5Gi"
+            cpu: "500m"
+          limits:
+            memory: "2.5Gi"
+            cpu: "1500m"
+            
+        # Startup Probe: Gives the JVM and world generator time to boot
+        startupProbe:
+          tcpSocket:
+            port: 25565
+          failureThreshold: 30
+          periodSeconds: 10 # Gives up to 5 minutes (30 * 10s) to start
+          
+        # Liveness Probe: Checks if the server crashed after startup
+        livenessProbe:
+          tcpSocket:
+            port: 25565
+          failureThreshold: 3
+          periodSeconds: 20
+
+      volumes:
+      - name: data
+        persistentVolumeClaim:
+          claimName: minecraft-data-pvc
+
+---
+# 4. Networking (Service)
+apiVersion: v1
+kind: Service
+metadata:
+  name: minecraft-service
+spec:
+  type: LoadBalancer # k3s ServiceLB will bind this directly to host port 25565
+  selector:
+    app: minecraft
+  ports:
+  - port: 25565
+    targetPort: 25565
+    protocol: TCP
