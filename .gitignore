@@ -1,0 +1,11 @@
+# Ignore Terraform
+.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Ignore build artifacts
+*.zip
+*.tar.gz
+
+# Ignore system files
+.DS_Store

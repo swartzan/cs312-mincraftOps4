@@ -1,0 +1,12 @@
+services:
+  mc-server:
+    image: 441688139382.dkr.ecr.us-east-1.amazonaws.com/minecraft_ops:v2
+    ports:
+      - "25565:25565"
+    environment:
+      - EULA=TRUE
+      - MOTD= Andrew Swartz - CS312
+      - VERSION=1.20.2 
+    volumes:
+      - ./data:/data
+    restart: always

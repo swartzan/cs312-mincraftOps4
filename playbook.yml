@@ -1,0 +1,59 @@
+---
+- name: Configure Minecraft Server and Restore World Data
+  hosts: all
+  become: true
+  vars:
+    s3_bucket: "cs312-swartzan-backups/backups/"
+    ecr_repo: "441688139382.dkr.ecr.us-east-1.amazonaws.com/minecraft_ops"
+    image_tag: "latest" # Or 'latest'
+    mc_data_path: "/opt/minecraft/data"
+
+  tasks:
+    - name: 1. Install prerequisites (Docker and AWS CLI)
+      apt:
+        name:
+          - docker.io
+          - python3-pip
+          - awscli
+        state: present
+        update_cache: yes
+
+    - name: Ensure Docker service is running
+      systemd:
+        name: docker
+        state: started
+        enabled: yes
+
+    - name: Install Docker SDK for Python (Required for Ansible Docker modules)
+      pip:
+        name: docker
+
+    - name: 2. Create Minecraft data directory
+      file:
+        path: "{{ mc_data_path }}"
+        state: directory
+        mode: '0755'
+
+    - name: 3. Restore world data from S3 (Rebuild Strategy)
+      shell: "aws s3 sync s3://{{ s3_bucket }}/world-backup/ {{ mc_data_path }}/"
+      args:
+        creates: "{{ mc_data_path }}/world" # Won't overwrite if world already exists
+
+    - name: 4. Authenticate to ECR
+      shell: "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin {{ ecr_repo }}"
+      changed_when: false
+
+    - name: 5. & 6. Pull and start pinned Minecraft image from ECR
+      shell: |
+        docker pull {{ ecr_repo }}:{{ image_tag }}
+        docker stop minecraft-server || true
+        docker rm minecraft-server || true
+        docker run -d \
+          --name minecraft-server \
+          --restart always \
+          -p 25565:25565 \
+          -e EULA=TRUE \
+          -e MOTD="Andrew Swartz - CS312 MC Ops 3" \
+          -v {{ mc_data_path }}:/data \
+          {{ ecr_repo }}:{{ image_tag }}
+
